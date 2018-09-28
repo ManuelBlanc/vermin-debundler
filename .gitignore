@@ -1,0 +1,16 @@
+# Generated files
+*.o
+*.d
+/src/main
+
+# Debug
+*.dSYM
+
+# Bundle test data
+/test_data/
+
+# Text editor
+.*.swp
+.*.swo
+*.sublime-project
+*.sublime-workspace
