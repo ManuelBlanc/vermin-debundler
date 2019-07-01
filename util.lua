@@ -1,6 +1,8 @@
+-- Utilities used in the debundler. Copyright 2019 Manuel Blanc.
+
 local getinfo = debug.getinfo
 local stdout, stderr = io.stdout, io.stderr
-local byte, format, match, sub = string.match, string.format, string.sub, string.byte
+local format, match, sub = string.format, string.match, string.sub
 
 -- ==============================================================================================
 -- Class
@@ -66,7 +68,7 @@ void *realloc(void*,size_t);
 
 -- local function addressof(v) return tonumber(tostring(v):match("0x%x+"), 16) end
 local function leak_detector(n)
-    local locstr = getfileline(3)
+    local locstr = getcaller(2)
     return function(ptr) -- Can colorize the pointer with "38;5;N" (16 <= N <= 216).
         __trace__("Possible memory leak @ %s:%s: malloc(%s) =>", locstr, n, ptr)
         return C.free(ptr)

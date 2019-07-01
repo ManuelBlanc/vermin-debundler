@@ -1,3 +1,5 @@
+-- File-like streams. Copyright 2019 Manuel Blanc.
+
 local util = require("util")
 local class = util.class
 local malloc, realloc, free = util.malloc, util.realloc, util.free
@@ -34,16 +36,13 @@ local ZLIB_RET = {
 -- ==============================================================================================
 
 local Stream = class()
-function Stream:_seek(n) error("abstract class") end
-function Stream:_read(n) error("abstract class") end
-function Stream:read(n)
-    __trace__("Stream:read(%s)", n)
-    return self:_read(malloc(n), n)
-end
-function Stream:read_uint8()  local b = new("uint8_t[1]")  return self:_read(b, 1)[0] end
-function Stream:read_uint16() local b = new("uint16_t[1]") return self:_read(b, 2)[0] end
-function Stream:read_uint32() local b = new("uint32_t[1]") return self:_read(b, 4)[0] end
-function Stream:read_uint64() local b = new("uint64_t[1]") return self:_read(b, 8)[0] end
+function Stream:_seek(n) error("called _seek in the Stream abstract class") end
+function Stream:_read(n) error("called _read in the Stream abstract class") end
+function Stream:read(n) return self:_read(malloc(n), n) end
+function Stream:read_uint8()  return self:_read(new("uint8_t [1]"), 1)[0] end
+function Stream:read_uint16() return self:_read(new("uint16_t[1]"), 2)[0] end
+function Stream:read_uint32() return self:_read(new("uint32_t[1]"), 4)[0] end
+function Stream:read_uint64() return self:_read(new("uint64_t[1]"), 8)[0] end
 
 -- ==============================================================================================
 -- FileStream

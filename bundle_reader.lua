@@ -1,11 +1,4 @@
---[[
-    Vermintide Debundler. Requires LuaJIT.
-
-    Copyright 2019 ManuelBlanc
-    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-    The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
---]]
+-- Bitsquid Bundle Reader. Copyright 2019 Manuel Blanc.
 
 local util = require("util")
 local class = util.class
@@ -17,10 +10,6 @@ local murmurhash64 = require("murmurhash64")
 local tojson = require("json").tojson
 local cast = require("ffi").cast
 
--- ==============================================================================================
--- Bundle Reader
--- ==============================================================================================
-
 -- Acceptable bundle formats dictionary.
 local BUNDLE_FORMAT_DATA = {
     { signature = 0xF0000004, header = 0x10, name = "vt1" },
@@ -30,6 +19,10 @@ local BUNDLE_FORMAT_DATA = {
 for _, def in ipairs(BUNDLE_FORMAT_DATA) do
     BUNDLE_FORMAT_DATA[def.signature] = def
 end
+
+-- ==============================================================================================
+-- Bundle Reader
+-- ==============================================================================================
 
 local BundleReader = class()
 
@@ -122,12 +115,23 @@ function BundleReader:read_items()
     end
 end
 
-function BundleReader:extract_scripts(base_path, hash_list)
+function BundleReader:extract_script(out, hash)
+    for _, item in ipairs(self.items) do
+        for _, header in ipairs(item.headers) do
+            if header.lang == 0 and item.type == "lua" and item.name_hash == hash then
+                local script_len = cast("const uint32*", header.data)
+                local data = ffi.string(header.data + 12, script_len)
+                out:write(data)
+            end
+        end
+    end
+end
+
+function BundleReader:extract_all_scripts(base_path, hash_dict)
     base_path = base_path or "scripts/"
     for _, item in ipairs(self.items) do
-        __trace__("%s.%s", item.name or item.name_hash, item.type or item.type_hash)
         for _, header in ipairs(item.headers) do
-            if header.lang == 0 and item.type == "lua" and (not hash_list or hash_list[item.name_hash]) then
+            if header.lang == 0 and item.type == "lua" and (not hash_dict or hash_dict[item.name_hash]) then
                 local p = path(item.name)
                 local script_path, script_base = p.dirname, p.basename
                 script_path = base_path .. script_path .. script_base .. ".lua"
@@ -142,7 +146,7 @@ function BundleReader:extract_scripts(base_path, hash_list)
     end
 end
 
-function BundleReader:write_index(base_path, fragment)
+function BundleReader:write_index(out)
     local obj = {}
     for i, item in ipairs(self.items) do
         obj[i] = {
@@ -155,73 +159,7 @@ function BundleReader:write_index(base_path, fragment)
             obj[i].headers[j] = { lang = header.lang, size = header.size, unknown = header.unknown }
         end
     end
-    local target_name = path(self.path).basename .. ".json"
-    __trace__("%s => %s of %s", target_name, #obj, #self.items)
-    local target_path = base_path or "index/"
-    if fragment then target_path = target_path .. target_name:sub(1, 2) .. "/" end
-    os.execute("mkdir -p " .. target_path)
-    local f = assert(io.open(target_path .. target_name, "w"))
-    f:write(tojson(obj))
-    f:close()
+    out:write(tojson(obj), "\n")
 end
 
--- ==============================================================================================
--- Hash Lookup
--- ==============================================================================================
-
-local HashLookup = class()
-function HashLookup:add(plain)
-    self[tohex64(murmurhash64(plain))] = plain
-end
-function HashLookup:add_from_file(filename)
-    for plain in io.lines(filename) do self:add(plain) end
-end
-function HashLookup:add_from_list(list)
-    for _, plain in ipairs(list) do self:add(plain) end
-end
-function HashLookup:get(hash)
-    return self[hash]
-end
-function HashLookup:tostring()
-    local lines = {}
-    for k, v in pairs(self) do
-        lines[#lines+1] = string.format("%s\t%s", k, v)
-    end
-    table.sort(lines)
-    return table.concat(lines, "\n")
-end
-
-local hl = HashLookup:new()
-hl:add_from_file "files.txt"
-hl:add_from_file "stash/dict.txt"
-hl:add_from_list { "animation_curves", "apb", "bik", "bones", "config", "crypto", "data", "entity", "flow", "font", "ini", "ivf", "level", "lua", "material", "mod", "mouse_cursor", "navdata", "network_config", "package", "particles", "physics_properties", "render_config", "scene", "shader", "shader_library", "shader_library_group", "shading_environment", "shading_environment_mapping", "sound_environment", "state_machine", "strings", "surface_properties", "texture", "timpani_bank", "timpani_master", "tome", "unit", "vector_field", "wav", "wwise_bank", "wwise_dep", "wwise_metadata", "wwise_stream" }
----print(hl:tostring())
-
-local hash_list = {
-    "scripts/settings/breeds/breed_tweaks.lua",
-    "scripts/settings/breeds/breed_tweaks",
-}
-for _, k in pairs(hash_list) do hash_list[tohex64(murmurhash64(k))] = k end
-
---__trace__[debundle_all] = true
---__trace__[BundleReader.write_index] = true
---__trace__["*"] = false
---__trace__["./debundler.lua"] = true
---__trace__["./stream.lua"] = false
---__trace__[ZlibStream._uncompress_blob] = true
---__trace__[ZlibStream._read] = true
-
-local function pe(err) io.stderr:write(err, "\n", debug.traceback(2), "\n") end
-local ok = true
-for _, path in ipairs({...}) do
-    print(path)
-    ok = xpcall(function()
-        local br = BundleReader:new(path, hl)
-        br:write_index("index/", true)
-        --br:extract_scripts()
-    end, pe)
-    --if not ok then break end
-end
-io.stdout:flush()
-io.stderr:flush()
-os.exit(ok and 0 or 255) -- 255 to stop xargs
+return BundleReader
